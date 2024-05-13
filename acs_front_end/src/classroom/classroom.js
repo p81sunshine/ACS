@@ -18,11 +18,15 @@ export default function Classroom() {
   };
 
   const onFinish = async (values) => {
-    console.log("Received values:", values);
+    const body = {
+      ...values,
+      capacity: Number(values.capacity)
+    }
+    console.log("Received values:", body);
     try {
       const response = await axios.post(
         "http://127.0.0.1:5000/api/classrooms",
-        values
+        body
       );
       console.log(response.status);
       if (response.status === 200 || response.status === 201)

@@ -130,7 +130,7 @@ def init(dict,num_courses,class_time,num_timeslots):
     print(res)
     return res
 
-def schedule_course(num_courses,num_rooms,cids,tids):
+def schedule_course(num_courses,num_rooms,cids,tids,classroom_ids):
     # 初始化种群
     mutation_rate = 0.01
     num_timeslots = 25
@@ -144,11 +144,8 @@ def schedule_course(num_courses,num_rooms,cids,tids):
                            51, 52, 53, 54, 55])
 
     per_teacher_course = num_courses//teacher_num
-    print(cids)
-    print(tids)
     tc_dict = {}
     for i in range(0, num_courses):
-        print(i)
         tid = tids[i]
         cid = cids[i]
         if tid in tc_dict:
@@ -157,7 +154,6 @@ def schedule_course(num_courses,num_rooms,cids,tids):
             l = []
             l.append(cid)
             tc_dict[tid] = l
-    print(tc_dict)
 
 
 
@@ -196,7 +192,7 @@ def schedule_course(num_courses,num_rooms,cids,tids):
         if class_time[i] not in dict:
             continue
         for j in dict[class_time[i]]:
-            classroom_res[j] = room_id
+            classroom_res[j] = classroom_ids[room_id]
             room_id += 1
     schedule_ids = []
     class_ids = []
@@ -243,7 +239,6 @@ def schedule_interface():
     # 从本地数据库中获取课程和教室信息
     courses = copy.deepcopy(local_db_courses)
     classrooms = copy.deepcopy(local_db_classrooms)
-
     cid = []
     tid = []
     for doc in courses:
@@ -252,7 +247,19 @@ def schedule_interface():
     course_num = len(courses)
     classroom_num = len(classrooms)
 
-    schedule_ids, class_ids, times, classrooms, teachers = schedule_course(course_num, classroom_num, cid, tid)
+
+
+    classroom_ids = []
+    for doc in classrooms:
+        classroom_ids.append(doc["classroom_id"])
+    print(classroom_ids)
+    schedule_ids,class_ids,times,classrooms,teachers = schedule_course(course_num,classroom_num,cid,tid,classroom_ids)
+
+
+
+
+
+    # schedule_ids, class_ids, times, classrooms, teachers = schedule_course(course_num, classroom_num, cid, tid)
 
     data = []
     for i in range(0, course_num):

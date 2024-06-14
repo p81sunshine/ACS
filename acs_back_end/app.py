@@ -24,23 +24,6 @@ login_response_data = login_response.json()
 
 print(login_response_data)
 
-#schedule_done = Event()
-app = Flask(__name__)
-cors = CORS(app)
-
-uri = "mongodb+srv://3210102495:Gw7GaKXlOuMWQ1bf@cluster0.pheotiv.mongodb.net/"
-client = MongoClient(uri)
-
-# 在应用启动时下载所有数据
-database = client['scheduling_course']
-schedule_res_collection = database['schedule_res']
-courses_collection = database['courses']
-campus_collection = database['campus']
-teacher_collection = database['teacher']
-classrooms_collection = database['classrooms']
-time_slots_collection = database['time_slots']  # 新增
-
-
 # 从登录响应的data字典中提取token
 token = login_response_data['data'].get('token')
 
@@ -52,28 +35,6 @@ headers = {
     "Authorization": token  # 注意这里的改动
 }
 
-course_list_response = requests.get(course_list_url, headers=headers)
-course_list_response_data = course_list_response.text
-
-print(course_list_response_data)
-data = json.loads(course_list_response_data)
-courses_collection.delete_many({})
-for item in data['data']:
-    # 计算teacher_id
-    teacher_id = int(item['teacher']) - 321010 + 36
-    # 修正class_id的范围
-    class_id = int(item['id']) - 1
-    # 创建新的字典
-    new_doc = {
-        "class_id": class_id,
-        "teacher_id": teacher_id,
-        "class_name": item['name'],
-        "campus_id": item['campus']
-    }
-    # 插入到MongoDB
-    courses_collection.insert_one(new_doc)
-
-print("course插入完成")
 
 # 添加用户列表请求，使用Authorization头
 user_list_url = "http://localhost:8000/api/user/list/"
@@ -81,39 +42,68 @@ user_list_headers = {
     "Authorization": token
 }
 
-user_list_response = requests.get(user_list_url, headers=user_list_headers)
-user_list_response_data = user_list_response.text
+def get_teacher_from_mysql():
+    user_list_response = requests.get(user_list_url, headers=user_list_headers)
+    user_list_response_data = user_list_response.text
+    data = json.loads(user_list_response_data)
+    # 提取auth值为1的项（在这个例子中，不会找到任何匹配项）
+    auth_one_items = [item for item in data['data'] if item['auth'] == 1]
+    
+    teachers_collection = []  # 创建一个空列表来收集所有符合条件的教师信息
+    for item in auth_one_items:
+        # 计算teacher_id
+        teacher_id = int(item['number']) - 321010 + 36
+        # 创建新的字典
+        new_doc = {
+            "teacher_id": teacher_id,
+            "teacher_name": item['name']
+        }
+        teachers_collection.append(new_doc)  # 将新的字典添加到列表中
 
-print(user_list_response_data)
-# 将JSON字符串解析为Python字典
-data = json.loads(user_list_response_data)
+    return teachers_collection  # 返回包含所有符合条件教师信息的列表
 
-# 提取auth值为1的项（在这个例子中，不会找到任何匹配项）
-auth_one_items = [item for item in data['data'] if item['auth'] == 1]
+def get_course_from_mysql():
+    course_list_response = requests.get(course_list_url, headers=headers)
+    course_list_response_data = course_list_response.json()
+    # data = json.loads(course_list_response_data)  # 这行是不必要的，应该删除
 
-print(auth_one_items)
-# 删除teacher集合中的所有现有文档
-teacher_collection.delete_many({})
+    courses_collection = []  # 创建一个空列表来收集所有课程信息
+    for item in course_list_response_data['data']:
+        # 计算teacher_id
+        teacher_id = int(item['teacher']) - 321010 + 36
+        # 修正class_id的范围
+        class_id = int(item['id']) - 1
+        # 创建新的字典
+        new_doc = {
+            "class_id": class_id,
+            "teacher_id": teacher_id,
+            "class_name": item['name'],
+            "campus_id": item['campus']
+        }
+        courses_collection.append(new_doc)  # 将新的字典添加到列表中
 
-for item in auth_one_items:
-    # 计算teacher_id
-    teacher_id = int(item['number']) - 321010 + 36
-    # 创建新的字典
-    new_doc = {
-        "teacher_id": teacher_id,
-        "teacher_name": item['name']
-    }
-    # 插入到MongoDB
-    teacher_collection.insert_one(new_doc)
+    return courses_collection  # 返回包含所有课程信息的列表
 
-print("teacher插入完成")
+#schedule_done = Event()
+app = Flask(__name__)
+cors = CORS(app)
 
-courses_collection = database['courses']
-teacher_collection = database['teacher']
+uri = "mongodb+srv://3210102495:Gw7GaKXlOuMWQ1bf@cluster0.pheotiv.mongodb.net/"
+client = MongoClient(uri)
+
+# 在应用启动时下载所有数据
+database = client['scheduling_course']
+schedule_res_collection = database['schedule_res']
+courses_collection = get_course_from_mysql()
+campus_collection = database['campus']
+teacher_collection = get_teacher_from_mysql()
+classrooms_collection = database['classrooms']
+time_slots_collection = database['time_slots']  # 新增
+
+courses = get_course_from_mysql()
+teacher = get_teacher_from_mysql()
 schedule_res = list(schedule_res_collection.find({}))
-courses = list(courses_collection.find({}))
 campus = list(campus_collection.find({}))
-teacher = list(teacher_collection.find({}))
 classrooms = list(classrooms_collection.find({}))
 time_slots = list(time_slots_collection.find({}))  # 新增
 update_local_db(schedule_res, courses, campus, teacher, classrooms, time_slots)
@@ -200,9 +190,9 @@ def update_local_db_from_mongodb():
     while True:
         with data_lock:  # 获取锁
             schedule_res = list(schedule_res_collection.find({}))
-            courses = list(courses_collection.find({}))
+            courses = get_course_from_mysql()
             campus = list(campus_collection.find({}))
-            teacher = list(teacher_collection.find({}))
+            teacher = get_teacher_from_mysql()
             classrooms = list(classrooms_collection.find({}))
             time_slots = list(time_slots_collection.find({}))  # 新增
             update_local_db(schedule_res, courses, campus, teacher, classrooms, time_slots)
@@ -212,7 +202,6 @@ def update_local_db_from_mongodb():
 
 update_thread = threading.Thread(target=update_local_db_from_mongodb)
 update_thread.start()
-
 
 # 获取课室信息
 @app.route('/api/classrooms', methods=['GET'])
@@ -268,8 +257,7 @@ def search_id():
         name = request.json['name']  # 从请求的JSON体中提取名字
         print(f"Received name: {name}")  # 打印接收到的名字
 
-        local_db_schedule_res, local_db_courses, local_db_campus, local_db_teacher, local_db_classrooms, local_db_time_slots = get_local_db()
-        teachers = copy.deepcopy(local_db_teacher)
+        teachers = get_teacher_from_mysql()
 
         id = -1  # 假设没有找到结果
         for teacher in teachers:
@@ -289,8 +277,7 @@ def search_id():
 @cross_origin()
 def get_teacher_name(teacher_id):
     try:
-        local_db_schedule_res, local_db_courses, local_db_campus, local_db_teacher, local_db_classrooms, local_db_time_slots = get_local_db()
-        teachers = copy.deepcopy(local_db_teacher)
+        teachers = get_teacher_from_mysql()
 
         # 在教师列表中查找匹配的教师ID
         for teacher in teachers:
@@ -312,11 +299,14 @@ def get_classroom_courses(classroom_id):
         classroom_courses = [item for item in local_db_schedule_res if item['classroom'] == classroom_id]
         result = {"courses": []}
 
+        mysql_courses = get_course_from_mysql()
+        mysql_teacher = get_teacher_from_mysql()
+
         for i in range(len(classroom_courses)):
-            course = next((item for item in local_db_courses if item['class_id'] == classroom_courses[i]['class_id']), None)
+            course = next((item for item in mysql_courses if item['class_id'] == classroom_courses[i]['class_id']), None)
             classroom = next((item for item in local_db_classrooms if item['classroom_id'] == classroom_courses[i]['classroom']), None)
             campus = next((item for item in local_db_campus if item['name'] == course['campus_id']), None) if course else None
-            teacher = next((item for item in local_db_teacher if item['teacher_id'] == classroom_courses[i]['teacher']), None)
+            teacher = next((item for item in mysql_teacher if item['teacher_id'] == classroom_courses[i]['teacher']), None)
             time_slot = next((item for item in local_db_time_slots if item['time'] == classroom_courses[i]['time']), None)
 
             if None in [teacher, course, classroom, campus, time_slot]:
@@ -544,11 +534,14 @@ def get_courses(teacher_id):
         courses = [item for item in local_db_schedule_res if item['teacher'] == teacher_id]
         result = {"courses": []}
 
+        mysql_courses = get_course_from_mysql()
+        mysql_teacher = get_teacher_from_mysql()
+
         for i in range(len(courses)):
-            course = next((item for item in local_db_courses if item['class_id'] == courses[i]['class_id']), None)
+            course = next((item for item in mysql_courses if item['class_id'] == courses[i]['class_id']), None)
             classroom = next((item for item in local_db_classrooms if item['classroom_id'] == courses[i]['classroom']), None)
             campus = next((item for item in local_db_campus if item['name'] == course['campus_id']), None) if course else None
-            teacher = next((item for item in local_db_teacher if item['teacher_id'] == courses[i]['teacher']), None)
+            teacher = next((item for item in mysql_teacher if item['teacher_id'] == courses[i]['teacher']), None)
             time_slot = next((item for item in local_db_time_slots if item['time'] == courses[i]['time']), None)
 
             if None in [teacher, course, classroom, campus, time_slot]:
@@ -729,15 +722,16 @@ def reschedule_classes():
     local_db_schedule_res, local_db_courses, local_db_campus, local_db_teacher, local_db_classrooms, local_db_time_slots = get_local_db()
     schedule_res = local_db_schedule_res.copy()  # 使用本地数据
 
-    courses = copy.deepcopy(local_db_courses)  # 使用深拷贝
+    mysql_courses = get_course_from_mysql()
+    mysql_teacher = get_teacher_from_mysql()
 
     result = {"schedules": []}
 
     for document in schedule_res:
-        course = next((item for item in courses if item['class_id'] == document['class_id']), None)
+        course = next((item for item in mysql_courses if item['class_id'] == document['class_id']), None)
         classroom = next((item for item in local_db_classrooms if item['classroom_id'] == document['classroom']), None)
         campus = next((item for item in local_db_campus if item['name'] == course['campus_id']), None) if course else None
-        teacher = next((item for item in local_db_teacher if item['teacher_id'] == document['teacher']), None)
+        teacher = next((item for item in mysql_teacher if item['teacher_id'] == document['teacher']), None)
         time_slot = next((item for item in local_db_time_slots if item['time'] == document['time']), None)
 
         if None in [teacher, course, classroom, campus, time_slot]:
@@ -764,11 +758,13 @@ def reschedule_classes():
 def get_schedule():
     local_db_schedule_res, local_db_courses, local_db_campus, local_db_teacher, local_db_classrooms, local_db_time_slots = get_local_db()
     schedule_res = local_db_schedule_res.copy()  # 使用本地数据
-
+    
     result = {"schedules": []}
+    mysql_courses = get_course_from_mysql()
+    mysql_teacher = get_teacher_from_mysql()
 
     for document in schedule_res:
-        course = next((item for item in local_db_courses if item['class_id'] == document['class_id']), None)
+        course = next((item for item in mysql_courses if item['class_id'] == document['class_id']), None)
         if course is None:
             print(f"Missing course for class_id: {document['class_id']}")
         classroom = next((item for item in local_db_classrooms if item['classroom_id'] == document['classroom']), None)
@@ -777,7 +773,7 @@ def get_schedule():
         campus = next((item for item in local_db_campus if item['name'] == course['campus_id']), None) if course else None
         if campus is None:
             print(f"Missing campus for campus_id: {course['campus_id']}")
-        teacher = next((item for item in local_db_teacher if item['teacher_id'] == document['teacher']), None)
+        teacher = next((item for item in mysql_teacher if item['teacher_id'] == document['teacher']), None)
         if teacher is None:
             print(f"Missing teacher for teacher_id: {document['teacher']}")
         time_slot = next((item for item in local_db_time_slots if item['time'] == document['time']), None)
